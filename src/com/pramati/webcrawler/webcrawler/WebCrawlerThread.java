@@ -1,7 +1,6 @@
 package com.pramati.webcrawler.webcrawler;
 
 
-
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -14,7 +13,11 @@ import org.jsoup.nodes.Element;
 import com.pramati.webcrawler.constants.CrawlerConstants;
 import com.pramati.webcrawler.resources.WebCrawlerProperties;
 
-public class WebCrawlerThread extends Thread{
+/**
+ * This thread class is responsible for downloading mails for month
+ * @author bhuvneshwars
+ */
+public class WebCrawlerThread implements Runnable{
 	
 	final static Logger logger = Logger.getLogger(WebCrawlerThread.class);
 	
@@ -30,6 +33,7 @@ public class WebCrawlerThread extends Thread{
 		this.mailLinkSet = mailLinkSet;
 		this.fileName = fileName;
 	}
+	
 	
 	@Override
 	public void run() {
@@ -53,18 +57,22 @@ public class WebCrawlerThread extends Thread{
 				fop.write(getMailSeparator());
 			}
 			
+			logger.info("Successfuly Downloaded mails for YEAR_MONTH : "+fileName);
+			
 		} catch(Exception e){
+			logger.error(e.getMessage()+" Exception occurred while downloading mail.");
 			e.printStackTrace();
 		} finally {
 			try {
 				fop.flush();
 				fop.close();
 			} catch (IOException e) {
-				logger.info(e.getMessage()+" Exception occurred while downloading mail.");
+				logger.error(e.getMessage()+" Exception occurred while closing file outputstream object.");
 				e.printStackTrace();
 			}
 		}
 	}
+	
 	
 	public byte[] getMailSeparator() {
 		return (CrawlerConstants.MAIL_SEPARATOR+CrawlerConstants.NEW_LINE).getBytes();

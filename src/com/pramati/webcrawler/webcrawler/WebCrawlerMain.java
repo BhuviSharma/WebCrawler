@@ -2,38 +2,40 @@ package com.pramati.webcrawler.webcrawler;
 
 
 import java.io.IOException;
-import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Scanner;
 import java.util.Set;
 
 import org.apache.log4j.Logger;
-import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 
 import com.pramati.webcrawler.constants.CrawlerConstants;
+import com.pramati.webcrawler.parser.WebCrawlerParser;
 import com.pramati.webcrawler.resources.WebCrawlerProperties;
 
 /**
  * @author bhuvneshwars
- * <br>This is main class, which having entry point to start crawling process
+ * <br><b>This is main class, which is having entry point to start crawling process</b>
  */
 
-public class WebCrawlerMain {
+public class WebCrawlerMain extends WebCrawlerParser {
 	
 	final static Logger logger = Logger.getLogger(WebCrawlerMain.class);
 	
 	static String year = null;
 	Document doc = null;
 	Elements elements = null;
-	Set<String> yearMailingArchiveList = null;
+	Set<String> yearMailingArchiveSet = null;
+	Map<String, Set<String>> monthMailMap = new HashMap<String, Set<String>>();
 	
 	/**
 	 * This is entry point to class 
-	 * @param a
 	 * @throws IOException
 	 */
 	public static void main(String[] a){
@@ -49,7 +51,7 @@ public class WebCrawlerMain {
 				webcrowlerObj = new WebCrawlerMain();
 				webcrowlerObj.startWebcrowlingProcess();
 			} else {
-				logger.error("Given year is not valid.");
+				logger.error("Given year "+year+" is not valid.");
 			}
 			
 		} catch(IOException e) {
@@ -65,23 +67,18 @@ public class WebCrawlerMain {
 	void startWebcrowlingProcess() throws IOException {
 		logger.info("Crawling Process is started for year "+year);
 		
-		doc = Jsoup.connect(WebCrawlerProperties.getString("WebCrawler.WEB_URL")).get();
-		elements = doc.select(CrawlerConstants.TAG_CSS_QUERY);
+		elements = getElementsInPage(WebCrawlerProperties.getString("WebCrawler.WEB_URL"),	CrawlerConstants.LINK_CSS_QUERY);
+		yearMailingArchiveSet = getLinksFromElements(elements, year, false);
 		
-		yearMailingArchiveList = new HashSet<String>();
-
-		for(Element link: elements){
-			if(link.attr(CrawlerConstants.LINK_TAG).contains(year)) {
-				yearMailingArchiveList.add(link.absUrl(CrawlerConstants.LINK_TAG));
-			}
-		}
-		if(yearMailingArchiveList.size()<=0) {
+		if(yearMailingArchiveSet.size()<=0) {
 			logger.info("No links are found for this year.");
 		}
 
-		for(String mailingArchListUrl : yearMailingArchiveList) {
+		for(String mailingArchListUrl : yearMailingArchiveSet) {
 			processMailingArchListListDocument(mailingArchListUrl);
 		}
+		
+		processMailLink(monthMailMap);
 	}
 	
 	/**
@@ -90,23 +87,33 @@ public class WebCrawlerMain {
 	 * @throws IOException
 	 */
 	void processMailingArchListListDocument(String mailingArchListUrl) throws IOException {
+		
 		logger.info("Processing Archive Mail : "+mailingArchListUrl);
 		
-		doc = Jsoup.connect(mailingArchListUrl).get();
-		elements = doc.getAllElements().select(CrawlerConstants.MSG_LIST_ID_QUERY).
-				select(CrawlerConstants.PAGE_NAV_CLASS_QUERY).select(CrawlerConstants.TAG_CSS_QUERY);
+		elements = getElementsInPage(mailingArchListUrl, CrawlerConstants.LINK_CSS_QUERY, 
+				CrawlerConstants.PAGE_NAV_CLASS_QUERY, CrawlerConstants.LINK_CSS_QUERY);
 		
 		Set<String> mailLinkSet = null;
-		if(elements.size()>=0)
-			mailLinkSet = getAllMailLinksList(elements, true);
+		if(elements.size()>0)
+			mailLinkSet = getLinksFromElements(elements, null, true);
+		
 		else {
-			elements = doc.getAllElements().select(CrawlerConstants.MSG_LIST_ID_QUERY).
-					select(CrawlerConstants.T_BODY).select(CrawlerConstants.TAG_CSS_QUERY);
-			mailLinkSet = getAllMailLinksList(elements, false);
+			elements = getElementsInPage(mailingArchListUrl, CrawlerConstants.MSG_LIST_ID_QUERY, 
+					CrawlerConstants.T_BODY, CrawlerConstants.LINK_CSS_QUERY);
+			mailLinkSet = getLinksFromElements(elements, null, false);
 		}
 		
-		processMailLink(mailLinkSet, mailingArchListUrl);
+		String fileName = mailingArchListUrl.substring(mailingArchListUrl.indexOf(year), 
+				mailingArchListUrl.indexOf(year)+6);
+		
+		Set<String> monthArchiveMailLinks = monthMailMap.get(fileName)==null?new HashSet<String>():monthMailMap.get(fileName);
+		
+		monthArchiveMailLinks.addAll(mailLinkSet);
+		monthMailMap.put(fileName, monthArchiveMailLinks);
+		
 	}
+	
+	
 	
 	/**
 	 * This method to get all links based on the parameter 
@@ -114,47 +121,20 @@ public class WebCrawlerMain {
 	 * @return mailLinkList 
 	 * @throws IOException
 	 */
-	public Set<String> getAllMailLinksList(Elements elements, boolean isPageNumberLink) throws IOException{
+	public Set<String> getLinksFromElements(Elements elements, String linkFilterCond, boolean isPageNumberLink) throws IOException{
 		Set<String> mailLinkSet = null;
 		List<Elements> subElementsList = null;
 		
 		if(isPageNumberLink) {
 			mailLinkSet = new HashSet<String>();
-			subElementsList = getAllSubElements(elements);
+			subElementsList = getSubElements(elements, CrawlerConstants.MSG_LIST_ID_QUERY, CrawlerConstants.T_BODY, 
+					CrawlerConstants.LINK_CSS_QUERY);
 			
 			for(Elements subElements : subElementsList) {
-				mailLinkSet.addAll(getElementLinkList(subElements));
+				mailLinkSet.addAll(getLinksFromPageElements(subElements, linkFilterCond));
 			}
 		} else {
-			mailLinkSet = getElementLinkList(elements);
-		}
-		return mailLinkSet;
-	}
-	
-	/**
-	 * This method is to get all sub elements in elements
-	 * @param elements
-	 * @return mailEelementsList
-	 * @throws IOException
-	 */
-	public List<Elements> getAllSubElements(Elements elements) throws IOException {
-		List<Elements> mailEelementsList = new ArrayList<Elements>();
-		for(Element link: elements){
-			mailEelementsList.add(Jsoup.connect(link.absUrl(CrawlerConstants.LINK_TAG)).get().
-					select(CrawlerConstants.MSG_LIST_ID_QUERY).select(CrawlerConstants.T_BODY).select(CrawlerConstants.TAG_CSS_QUERY));
-		}
-		return mailEelementsList;
-	}
-	
-	/**
-	 * This method will return list of links which are exist in that Elements
-	 * @param elements
-	 * @return mailLinkList
-	 */
-	public Set<String> getElementLinkList(Elements elements) {
-		Set<String> mailLinkSet = new HashSet<String>();
-		for(Element link: elements){
-				mailLinkSet.add(link.absUrl(CrawlerConstants.LINK_TAG));
+			mailLinkSet = getLinksFromPageElements(elements, linkFilterCond);
 		}
 		return mailLinkSet;
 	}
@@ -163,12 +143,19 @@ public class WebCrawlerMain {
 	 * This method is responsible to write mail contents to the file 
 	 * @param mailLink
 	 */
-	public void processMailLink(Set<String> mailLinkSet, String parentUrl) {
-//		Starting WebCrawler Thread to write file
-		String fileName = parentUrl.substring(parentUrl.indexOf(year), 
-				parentUrl.indexOf(year)+6);
+	public void processMailLink(Map<String, Set<String>> monthMailMap) {
+		Entry<String, Set<String>> toProcessSetOfMailLinks = null;
+		WebCrawlerThread wcThread = null;
 		
-		WebCrawlerThread wcThread = new WebCrawlerThread(mailLinkSet, fileName);
-		wcThread.start();
+		Set<Entry<String, Set<String>>> linkMapEntrySet = monthMailMap.entrySet();
+		
+		Iterator<Entry<String, Set<String>>> it = linkMapEntrySet.iterator();
+		while(it.hasNext()) {
+			toProcessSetOfMailLinks = it.next();
+			wcThread = new WebCrawlerThread(toProcessSetOfMailLinks.getValue(), toProcessSetOfMailLinks.getKey());
+//			wcThread.start();
+			CrawlerThreadExecutor.runTask(wcThread);
+		}
 	}
+	
 }
