@@ -7,7 +7,10 @@ public interface CrawlerConstants {
 	int MAX_POOL_SIZE = 8;
 	long KEEP_ALIVE_TIME = 5000;
 	
+	int LIMIT_PER_THREAD = 5000;
+	
 	String HOME_PATH = System.getProperty("user.home");
+	
 	String MAIL_SEPARATOR = "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
 	
 //	Parsing related constants
@@ -24,4 +27,5 @@ public interface CrawlerConstants {
 	String CONT_CLASS_QUERY = "tr[class=contents]";
 	
 	String NEW_LINE = "\n";
+	
 }

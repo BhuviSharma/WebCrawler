@@ -1,23 +1,26 @@
 package com.pramati.webcrawler.webcrawler;
 
-
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.HashSet;
+import java.net.MalformedURLException;
 import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
 import java.util.Map.Entry;
+import java.util.HashSet;
 import java.util.Scanner;
 import java.util.Set;
 
 import org.apache.log4j.Logger;
+import org.jsoup.HttpStatusException;
+import org.jsoup.Jsoup;
+import org.jsoup.UnsupportedMimeTypeException;
 import org.jsoup.nodes.Document;
-import org.jsoup.select.Elements;
 
 import com.pramati.webcrawler.constants.CrawlerConstants;
-import com.pramati.webcrawler.parser.WebCrawlerParser;
-import com.pramati.webcrawler.resources.WebCrawlerProperties;
+import com.pramati.webcrawler.downloader.CrawlerEmailDownloadThread;
+import com.pramati.webcrawler.webcrawler.CrawlerParserThread;
+import com.pramati.webcrawler.util.URLProcessRecord;
+import com.pramati.webcrawler.util.WebCrawlerFilter;
+import com.pramati.webcrawler.util.WebCrawlerParser;
+import com.pramati.webcrawler.util.WebCrawlerProperties;
 
 /**
  * @author bhuvneshwars
@@ -27,12 +30,12 @@ import com.pramati.webcrawler.resources.WebCrawlerProperties;
 public class WebCrawlerMain extends WebCrawlerParser {
 	
 	final static Logger logger = Logger.getLogger(WebCrawlerMain.class);
+	static String rootUrl = WebCrawlerProperties.getString("WebCrawler.WEB_URL");
+	public static Object obj = new Object();
 	
 	static String year = null;
 	Document doc = null;
-	Elements elements = null;
-	Set<String> yearMailingArchiveSet = null;
-	Map<String, Set<String>> monthMailMap = new HashMap<String, Set<String>>();
+	boolean monthMailStatus = true;
 	
 	/**
 	 * This is entry point to class 
@@ -56,105 +59,86 @@ public class WebCrawlerMain extends WebCrawlerParser {
 			
 		} catch(IOException e) {
 			logger.error(e.getMessage()+" Exception is occurred during Crawling Process.");
-			e.printStackTrace();
+		} catch (InterruptedException e) {
+			logger.error(e.getMessage()+" Exception is occurred during Crawling Process.");
 		}
 	}
 	
 	/**
 	 * This method is responsible to start actual crawling process
 	 * @throws IOException
+	 * @throws InterruptedException 
 	 */
-	void startWebcrowlingProcess() throws IOException {
+	void startWebcrowlingProcess() throws IOException, InterruptedException {
 		logger.info("Crawling Process is started for year "+year);
 		
-		elements = getElementsInPage(WebCrawlerProperties.getString("WebCrawler.WEB_URL"),	CrawlerConstants.LINK_CSS_QUERY);
-		yearMailingArchiveSet = getLinksFromElements(elements, year, false);
-		
-		if(yearMailingArchiveSet.size()<=0) {
-			logger.info("No links are found for this year.");
-		}
-
-		for(String mailingArchListUrl : yearMailingArchiveSet) {
-			processMailingArchListListDocument(mailingArchListUrl);
-		}
-		
-		processMailLink(monthMailMap);
+		URLProcessRecord.getUnusedUrl().add(rootUrl);
+		processWebUrl(rootUrl);
 	}
 	
 	/**
-	 * This method to process all links for given year
-	 * @param mailingArchListUrl
+	 * This method to process url and get url document to process
+	 * @param webUrl
 	 * @throws IOException
+	 * @throws InterruptedException
 	 */
-	void processMailingArchListListDocument(String mailingArchListUrl) throws IOException {
+	public void processWebUrl(String webUrl) throws IOException, InterruptedException {
 		
-		logger.info("Processing Archive Mail : "+mailingArchListUrl);
-		
-		elements = getElementsInPage(mailingArchListUrl, CrawlerConstants.LINK_CSS_QUERY, 
-				CrawlerConstants.PAGE_NAV_CLASS_QUERY, CrawlerConstants.LINK_CSS_QUERY);
-		
-		Set<String> mailLinkSet = null;
-		if(elements.size()>0)
-			mailLinkSet = getLinksFromElements(elements, null, true);
-		
-		else {
-			elements = getElementsInPage(mailingArchListUrl, CrawlerConstants.MSG_LIST_ID_QUERY, 
-					CrawlerConstants.T_BODY, CrawlerConstants.LINK_CSS_QUERY);
-			mailLinkSet = getLinksFromElements(elements, null, false);
-		}
-		
-		String fileName = mailingArchListUrl.substring(mailingArchListUrl.indexOf(year), 
-				mailingArchListUrl.indexOf(year)+6);
-		
-		Set<String> monthArchiveMailLinks = monthMailMap.get(fileName)==null?new HashSet<String>():monthMailMap.get(fileName);
-		
-		monthArchiveMailLinks.addAll(mailLinkSet);
-		monthMailMap.put(fileName, monthArchiveMailLinks);
-		
-	}
-	
-	
-	
-	/**
-	 * This method to get all links based on the parameter 
-	 * @param elements, isPageNumberLink
-	 * @return mailLinkList 
-	 * @throws IOException
-	 */
-	public Set<String> getLinksFromElements(Elements elements, String linkFilterCond, boolean isPageNumberLink) throws IOException{
-		Set<String> mailLinkSet = null;
-		List<Elements> subElementsList = null;
-		
-		if(isPageNumberLink) {
-			mailLinkSet = new HashSet<String>();
-			subElementsList = getSubElements(elements, CrawlerConstants.MSG_LIST_ID_QUERY, CrawlerConstants.T_BODY, 
-					CrawlerConstants.LINK_CSS_QUERY);
+		try {
+			doc = Jsoup.connect(webUrl).get();
 			
-			for(Elements subElements : subElementsList) {
-				mailLinkSet.addAll(getLinksFromPageElements(subElements, linkFilterCond));
+			if(WebCrawlerFilter.isEmailPage(doc)) {
+				Object[] status =  WebCrawlerFilter.isMailForGivenYear(doc, year);
+				if(Boolean.parseBoolean(status[0]+"")) {
+					CrawlerTaskCollector.getInstance().addTask(webUrl, status[1].toString());
+				}
 			}
-		} else {
-			mailLinkSet = getLinksFromPageElements(elements, linkFilterCond);
-		}
-		return mailLinkSet;
+			
+			processDoc(doc, webUrl);
+		} catch(IllegalArgumentException e) {
+			logger.error(e.getMessage()+" Exception occured due to invalid URL.");
+		} catch(HttpStatusException e) {
+			logger.error(e.getMessage()+" Exception occured due to invalid URL.");
+		} catch(UnsupportedMimeTypeException e) {
+			logger.error(e.getMessage()+" Exception occured due to invalid URL.");
+		} catch(MalformedURLException e) {
+			logger.error(e.getMessage()+" Exception occured due to invalid URL.");
+		} 
 	}
 	
 	/**
-	 * This method is responsible to write mail contents to the file 
-	 * @param mailLink
+	 * This method is responsible to parse document and start thread 
+	 * for further parsing and second thread downloading mails
+	 * @param doc
+	 * @param webUrl
+	 * @throws IOException
+	 * @throws InterruptedException
 	 */
-	public void processMailLink(Map<String, Set<String>> monthMailMap) {
-		Entry<String, Set<String>> toProcessSetOfMailLinks = null;
-		WebCrawlerThread wcThread = null;
+	public void processDoc(Document doc, String webUrl) throws IOException, InterruptedException {
+		Set<String> links = null;
+		links = getLinksFromPageElements(parseForAnchors(doc), year);
+		URLProcessRecord.addUsedUrl(webUrl);
+		URLProcessRecord.addUnusedUrl(links);
 		
-		Set<Entry<String, Set<String>>> linkMapEntrySet = monthMailMap.entrySet();
+		CrawlerParserThread linkParserThread = null;
+		int i=1;
+		for(String link : links) {
+			Set<String> linkSet = new HashSet<String>();
+			linkSet.add(link);
+			linkParserThread = new CrawlerParserThread(linkSet, year, i*CrawlerConstants.LIMIT_PER_THREAD); i++;
+			linkParserThread.start();
+			linkParserThread.join();
+		}
 		
-		Iterator<Entry<String, Set<String>>> it = linkMapEntrySet.iterator();
-		while(it.hasNext()) {
-			toProcessSetOfMailLinks = it.next();
-			wcThread = new WebCrawlerThread(toProcessSetOfMailLinks.getValue(), toProcessSetOfMailLinks.getKey());
-//			wcThread.start();
-			CrawlerThreadExecutor.runTask(wcThread);
+		Entry<String, Set<String>> entryObj = null;
+		CrawlerEmailDownloadThread taskObj = null;
+		
+		Iterator<Entry<String, Set<String>>> urlMapItr = CrawlerTaskCollector.getInstance().getTaskMap().entrySet().iterator();
+		System.out.println("Coming...");
+		while(urlMapItr.hasNext()) {
+			entryObj = urlMapItr.next();
+			taskObj = new CrawlerEmailDownloadThread(entryObj.getValue(), entryObj.getKey());
+			taskObj.start();
 		}
 	}
 	
