@@ -34,4 +34,13 @@ public class ValidationUtility {
 			return true;
 		return false;
 	}
+	
+	public static boolean isClass(String className) {
+	    try  {
+	        Class.forName(className);
+	        return true;
+	    }  catch (final ClassNotFoundException e) {
+	        return false;
+	    }
+	}
 }
